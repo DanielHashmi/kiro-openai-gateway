@@ -24,12 +24,56 @@
 """
 
 import os
+import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
 load_dotenv()
+
+
+def _get_raw_env_value(var_name: str, env_file: str = ".env") -> Optional[str]:
+    """
+    Читает значение переменной из .env файла без обработки escape-последовательностей.
+    
+    Это необходимо для корректной работы с путями на Windows, где обратные слэши
+    (например, D:\\Projects\\file.json) могут быть ошибочно интерпретированы
+    как escape-последовательности (\\a -> bell, \\n -> newline и т.д.).
+    
+    Args:
+        var_name: Имя переменной окружения
+        env_file: Путь к .env файлу (по умолчанию ".env")
+    
+    Returns:
+        Сырое значение переменной или None если не найдено
+    """
+    env_path = Path(env_file)
+    if not env_path.exists():
+        return None
+    
+    try:
+        # Читаем файл как есть, без интерпретации
+        content = env_path.read_text(encoding="utf-8")
+        
+        # Ищем переменную с учётом разных форматов:
+        # VAR="value" или VAR='value' или VAR=value
+        # Паттерн захватывает значение в кавычках или без них
+        pattern = rf'^{re.escape(var_name)}=(["\']?)(.+?)\1\s*$'
+        
+        for line in content.splitlines():
+            line = line.strip()
+            if line.startswith("#") or not line:
+                continue
+            
+            match = re.match(pattern, line)
+            if match:
+                # Возвращаем значение как есть, без обработки escape-последовательностей
+                return match.group(2)
+    except Exception:
+        pass
+    
+    return None
 
 # ==================================================================================================
 # Настройки прокси-сервера
@@ -52,8 +96,10 @@ PROFILE_ARN: str = os.getenv("PROFILE_ARN", "")
 REGION: str = os.getenv("KIRO_REGION", "us-east-1")
 
 # Путь к файлу с credentials (опционально, альтернатива .env)
-# Нормализуем путь для кроссплатформенной совместимости (Windows/Linux/macOS)
-_raw_creds_file = os.getenv("KIRO_CREDS_FILE", "")
+# Читаем напрямую из .env чтобы избежать проблем с escape-последовательностями на Windows
+# (например, \a в пути D:\Projects\adolf интерпретируется как bell character)
+_raw_creds_file = _get_raw_env_value("KIRO_CREDS_FILE") or os.getenv("KIRO_CREDS_FILE", "")
+# Нормализуем путь для кроссплатформенной совместимости
 KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
 
 # ==================================================================================================
