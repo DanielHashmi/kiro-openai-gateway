@@ -16,7 +16,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-
+venv
 # Debug logs (generated when DEBUG_LAST_REQUEST=true)
 debug_logs*/
 debug*.json

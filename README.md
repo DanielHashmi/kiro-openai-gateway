@@ -253,6 +253,30 @@ print(response.content)
 
 ---
 
+## 🤖 Integration with Claude Code
+
+You can easily use this gateway with [Claude Code Router](https://github.com/musistudio/claude-code-router) to power your coding assistant.
+
+👉 **[Read the Setup Guide](SETUP_KIRO_WITH_CLAUDE_ROUTER.md)**
+
+Quick configuration snippet for `~/.claude-code-router/config.json`:
+
+```json
+{
+  "Providers": [
+    {
+      "name": "kiro",
+      "api_base_url": "http://localhost:8000/v1/chat/completions",
+      "api_key": "your-proxy-api-key",
+      "models": ["claude-sonnet-4-5", "claude-opus-4-5"],
+      "transformer": { "use": ["openai"] }
+    }
+  ]
+}
+```
+
+---
+
 ## 📁 Project Structure
 
 ```

@@ -108,7 +108,7 @@ class KiroAuthManager:
     
     def _load_credentials_from_file(self, file_path: str) -> None:
         """
-        Loads credentials from a JSON file.
+        Loads credentials from a JSON file or SQLite database.
         
         Supported JSON fields:
         - refreshToken: Refresh token
@@ -118,7 +118,7 @@ class KiroAuthManager:
         - expiresAt: Token expiration time (ISO 8601)
         
         Args:
-            file_path: Path to JSON file
+            file_path: Path to JSON file or SQLite DB
         """
         try:
             path = Path(file_path).expanduser()
@@ -126,8 +126,51 @@ class KiroAuthManager:
                 logger.warning(f"Credentials file not found: {file_path}")
                 return
             
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Check if it's a SQLite file
+            is_sqlite = False
+            try:
+                with open(path, 'rb') as f:
+                    header = f.read(16)
+                    if header.startswith(b'SQLite format 3'):
+                        is_sqlite = True
+            except Exception:
+                pass
+                
+            data = {}
+            
+            if is_sqlite:
+                import sqlite3
+                try:
+                    # Connect to SQLite DB in read-only mode to avoid locking issues
+                    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                    cursor = conn.cursor()
+                    
+                    # Read token from auth_kv table
+                    cursor.execute("SELECT value FROM auth_kv WHERE key='kirocli:odic:token'")
+                    row = cursor.fetchone()
+                    
+                    if row and row[0]:
+                        token_data = json.loads(row[0])
+                        # Map snake_case to camelCase
+                        if 'refresh_token' in token_data:
+                            data['refreshToken'] = token_data['refresh_token']
+                        if 'access_token' in token_data:
+                            data['accessToken'] = token_data['access_token']
+                        if 'expires_at' in token_data:
+                            data['expiresAt'] = token_data['expires_at']
+                        if 'region' in token_data:
+                            data['region'] = token_data['region']
+                            
+                    conn.close()
+                    logger.info(f"Credentials loaded from SQLite DB: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error reading SQLite credentials: {e}")
+                    return
+            else:
+                # Assume JSON file
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                logger.info(f"Credentials loaded from JSON file: {file_path}")
             
             # Load data from file
             if 'refreshToken' in data:
@@ -155,14 +198,12 @@ class KiroAuthManager:
                 except Exception as e:
                     logger.warning(f"Failed to parse expiresAt: {e}")
             
-            logger.info(f"Credentials loaded from {file_path}")
-            
         except Exception as e:
             logger.error(f"Error loading credentials from file: {e}")
     
     def _save_credentials_to_file(self) -> None:
         """
-        Saves updated credentials to a JSON file.
+        Saves updated credentials to a JSON file or SQLite database.
         
         Updates the existing file while preserving other fields.
         """
@@ -172,25 +213,70 @@ class KiroAuthManager:
         try:
             path = Path(self._creds_file).expanduser()
             
-            # Read existing data
-            existing_data = {}
-            if path.exists():
-                with open(path, 'r', encoding='utf-8') as f:
-                    existing_data = json.load(f)
+            # Check if it's a SQLite file
+            is_sqlite = False
+            try:
+                if path.exists():
+                    with open(path, 'rb') as f:
+                        header = f.read(16)
+                        if header.startswith(b'SQLite format 3'):
+                            is_sqlite = True
+            except Exception:
+                pass
             
-            # Update data
-            existing_data['accessToken'] = self._access_token
-            existing_data['refreshToken'] = self._refresh_token
-            if self._expires_at:
-                existing_data['expiresAt'] = self._expires_at.isoformat()
-            if self._profile_arn:
-                existing_data['profileArn'] = self._profile_arn
-            
-            # Save
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(existing_data, f, indent=2, ensure_ascii=False)
-            
-            logger.debug(f"Credentials saved to {self._creds_file}")
+            if is_sqlite:
+                import sqlite3
+                try:
+                    conn = sqlite3.connect(path)
+                    cursor = conn.cursor()
+                    
+                    # Read existing token data
+                    cursor.execute("SELECT value FROM auth_kv WHERE key='kirocli:odic:token'")
+                    row = cursor.fetchone()
+                    
+                    token_data = {}
+                    if row and row[0]:
+                        token_data = json.loads(row[0])
+                    
+                    # Update fields
+                    if self._access_token:
+                        token_data['access_token'] = self._access_token
+                    if self._refresh_token:
+                        token_data['refresh_token'] = self._refresh_token
+                    if self._expires_at:
+                        token_data['expires_at'] = self._expires_at.isoformat()
+                    # Keep region if present, or add if missing and we have it
+                    if self._region and 'region' not in token_data:
+                         token_data['region'] = self._region
+                         
+                    # Save back to DB
+                    new_value = json.dumps(token_data)
+                    cursor.execute("UPDATE auth_kv SET value=? WHERE key='kirocli:odic:token'", (new_value,))
+                    conn.commit()
+                    conn.close()
+                    logger.debug(f"Credentials saved to SQLite DB: {self._creds_file}")
+                except Exception as e:
+                    logger.error(f"Error saving to SQLite DB: {e}")
+            else:
+                # Handle JSON file
+                existing_data = {}
+                if path.exists():
+                    with open(path, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                
+                # Update data
+                existing_data['accessToken'] = self._access_token
+                existing_data['refreshToken'] = self._refresh_token
+                if self._expires_at:
+                    existing_data['expiresAt'] = self._expires_at.isoformat()
+                if self._profile_arn:
+                    existing_data['profileArn'] = self._profile_arn
+                
+                # Save
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(existing_data, f, indent=2, ensure_ascii=False)
+                
+                logger.debug(f"Credentials saved to {self._creds_file}")
             
         except Exception as e:
             logger.error(f"Error saving credentials: {e}")

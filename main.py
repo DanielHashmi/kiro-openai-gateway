@@ -50,6 +50,7 @@ from kiro_gateway.config import (
     _warn_deprecated_debug_setting,
     _warn_timeout_configuration,
 )
+
 from kiro_gateway.auth import KiroAuthManager
 from kiro_gateway.cache import ModelInfoCache
 from kiro_gateway.routes import router
