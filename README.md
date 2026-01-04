@@ -21,13 +21,13 @@
 | Feature | Description |
 |---------|-------------|
 | 🔌 **OpenAI-compatible API** | Works with any OpenAI client out of the box |
+| 🧠 **Extended Thinking** | See how the model reasons before answering |
 | 💬 **Full message history** | Passes complete conversation context |
 | 🛠️ **Tool Calling** | Supports function calling in OpenAI format |
 | 📡 **Streaming** | Full SSE streaming support |
 | 🔄 **Retry Logic** | Automatic retries on errors (403, 429, 5xx) |
 | 📋 **Extended model list** | Including versioned models |
 | 🔐 **Smart token management** | Automatic refresh before expiration |
-| 🧩 **Modular architecture** | Easy to extend with new providers |
 
 ---
 
@@ -36,7 +36,9 @@
 ### Prerequisites
 
 - Python 3.10+
-- [Kiro IDE](https://kiro.dev/) with logged in account
+- One of the following:
+  - [Kiro IDE](https://kiro.dev/) with logged in account, OR
+  - [Kiro CLI](https://kiro.dev/cli/) with AWS SSO (Builder ID)
 
 ### Installation
 
@@ -105,10 +107,102 @@ PROFILE_ARN="arn:aws:codewhisperer:us-east-1:..."
 KIRO_REGION="us-east-1"
 ```
 
-### Getting the Refresh Token
+### Option 3: AWS SSO Credentials (kiro-cli)
 
-The refresh token can be obtained by intercepting Kiro IDE traffic. Look for requests to:
-- `prod.us-east-1.auth.desktop.kiro.dev/refreshToken`
+If you use `kiro-cli` with AWS IAM Identity Center (SSO), the gateway will automatically detect and use AWS SSO OIDC authentication.
+
+```env
+KIRO_CREDS_FILE="~/.aws/sso/cache/your-sso-cache-file.json"
+
+# Password to protect YOUR proxy server
+PROXY_API_KEY="my-super-secret-password-123"
+
+# Note: PROFILE_ARN is NOT needed for AWS SSO OIDC (Builder ID) users
+# The gateway will work without it
+```
+
+<details>
+<summary>📄 AWS SSO JSON file format</summary>
+
+AWS SSO credentials files (from `~/.aws/sso/cache/`) contain:
+
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ...",
+  "expiresAt": "2025-01-12T23:00:00.000Z",
+  "region": "us-east-1",
+  "clientId": "...",
+  "clientSecret": "..."
+}
+```
+
+**Note:** AWS SSO OIDC (Builder ID) users do NOT need `profileArn`. The gateway will work without it (if specified, it will be ignored).
+
+</details>
+
+<details>
+<summary>🔍 How it works</summary>
+
+The gateway automatically detects the authentication type based on the credentials file:
+
+- **Kiro Desktop Auth** (default): Used when `clientId` and `clientSecret` are NOT present
+  - Endpoint: `https://prod.{region}.auth.desktop.kiro.dev/refreshToken`
+  
+- **AWS SSO OIDC**: Used when `clientId` and `clientSecret` ARE present
+  - Endpoint: `https://oidc.{region}.amazonaws.com/token`
+
+No additional configuration is needed — just point to your credentials file!
+
+</details>
+
+### Option 4: kiro-cli SQLite Database
+
+If you use `kiro-cli` and prefer to use its SQLite database directly:
+
+```env
+KIRO_CLI_DB_FILE="~/.local/share/kiro-cli/data.sqlite3"
+
+# Password to protect YOUR proxy server
+PROXY_API_KEY="my-super-secret-password-123"
+
+# Note: PROFILE_ARN is NOT needed for AWS SSO OIDC (Builder ID) users
+# The gateway will work without it
+```
+
+<details>
+<summary>📄 Database locations</summary>
+
+| CLI Tool | Database Path |
+|----------|---------------|
+| kiro-cli | `~/.local/share/kiro-cli/data.sqlite3` |
+| amazon-q-developer-cli | `~/.local/share/amazon-q/data.sqlite3` |
+
+The gateway reads credentials from the `auth_kv` table which stores:
+- `kirocli:odic:token` or `codewhisperer:odic:token` — access token, refresh token, expiration
+- `kirocli:odic:device-registration` or `codewhisperer:odic:device-registration` — client ID and secret
+
+Both key formats are supported for compatibility with different kiro-cli versions.
+
+</details>
+
+### Getting Credentials
+
+**For Kiro IDE users:**
+- Log in to Kiro IDE and use Option 1 above (JSON credentials file)
+- The credentials file is created automatically after login
+
+**For Kiro CLI users:**
+- Log in with `kiro-cli login` and use Option 3 or Option 4 above
+- No manual token extraction needed!
+
+<details>
+<summary>🔧 Advanced: Manual token extraction</summary>
+
+If you need to manually extract the refresh token (e.g., for debugging), you can intercept Kiro IDE traffic:
+- Look for requests to: `prod.us-east-1.auth.desktop.kiro.dev/refreshToken`
+
+</details>
 
 ---
 
@@ -340,34 +434,6 @@ When enabled, requests are logged to the `debug_logs/` folder:
 | `response_stream_modified.txt` | Transformed stream (OpenAI format) |
 | `app_logs.txt` | Application logs for the request |
 | `error_info.json` | Error details (only on errors) |
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run unit tests only
-pytest tests/unit/
-
-# Run with coverage
-pytest --cov=kiro_gateway
-```
-
----
-
-## 🔌 Extending with New Providers
-
-The modular architecture makes it easy to add support for other providers:
-
-1. Create a new module `kiro_gateway/providers/new_provider.py`
-2. Implement the required classes:
-   - `NewProviderAuthManager` — token management
-   - `NewProviderConverter` — format conversion
-   - `NewProviderParser` — response parsing
-3. Add routes to `routes.py` or create a separate router
 
 ---
 
